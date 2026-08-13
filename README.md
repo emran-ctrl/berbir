@@ -1,6 +1,6 @@
 # berbir
 
-A self-contained web vulnerability scanner written **100% in Rust**. It ships its own
+A self-contained web vulnerability scanner written **in Rust**. It ships its own
 Nuclei-style YAML template engine, a queue-backed Axum API, SQLite persistence, live
 WebSocket streaming, Markdown reports, and a WASM dashboard built with Leptos.
 

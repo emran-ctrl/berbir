@@ -80,17 +80,21 @@ struct WorkerCore {
 }
 
 impl JobManager {
-    pub fn start(db: SqlitePool, scanner: Scanner, events: EventBus) -> Self {
+    pub fn start(db: SqlitePool, scanner: Scanner, events: EventBus) -> anyhow::Result<Self> {
         let (tx, rx) = mpsc::channel(64);
+        let client = reqwest::Client::builder()
+            .user_agent("berbir/0.1.0")
+            .timeout(std::time::Duration::from_secs(30))
+            .build()?;
         let core = Arc::new(WorkerCore {
             db: db.clone(),
             scanner,
             events: events.clone(),
-            client: reqwest::Client::new(),
+            client,
             concurrency: Arc::new(Semaphore::new(MAX_CONCURRENT_SCANS)),
         });
         tokio::spawn(Worker { core, rx }.run());
-        Self { db, tx, events }
+        Ok(Self { db, tx, events })
     }
 
     /// Persist and enqueue a scan job. Returns the created scan.
@@ -216,42 +220,68 @@ impl WorkerCore {
 
     async fn run_domain_scan(&self, scan: &Scan) -> anyhow::Result<()> {
         let domain = scan.target.clone();
-        let subdomains =
-            berbir_engine::discovery::enumerate_subdomains(&self.client, &domain).await?;
-        self.events
-            .send(
-                scan.id,
-                ScanEvent::SubdomainsFound {
-                    domain: domain.clone(),
-                    subdomains: subdomains.clone(),
-                },
-            )
-            .await;
-        tracing::info!(
-            "domain scan {} found {} subdomains",
-            domain,
-            subdomains.len()
-        );
-        if subdomains.is_empty() {
-            return Ok(());
+        match berbir_engine::discovery::enumerate_subdomains(&self.client, &domain).await {
+            Ok(subdomains) => {
+                self.events
+                    .send(
+                        scan.id,
+                        ScanEvent::SubdomainsFound {
+                            domain: domain.clone(),
+                            subdomains: subdomains.clone(),
+                        },
+                    )
+                    .await;
+                tracing::info!(
+                    "domain scan {} found {} subdomains",
+                    domain,
+                    subdomains.len()
+                );
+                if subdomains.is_empty() {
+                    tracing::info!("no subdomains for {domain}; scanning apex");
+                    self.scan_targets(scan, vec![domain]).await;
+                } else {
+                    self.scan_targets(scan, subdomains).await;
+                }
+            }
+            Err(e) => {
+                tracing::warn!(
+                    "domain scan {domain} discovery failed ({e}); scanning apex instead"
+                );
+                self.events
+                    .send(
+                        scan.id,
+                        ScanEvent::Progress {
+                            message: format!(
+                                "subdomain discovery failed ({e}); scanning apex domain instead"
+                            ),
+                        },
+                    )
+                    .await;
+                self.scan_targets(scan, vec![domain]).await;
+            }
         }
+        Ok(())
+    }
 
+    /// Spawn a child `Url` scan per target (subdomain hostname or apex domain),
+    /// capped by [`MAX_SUBDOMAIN_SCANS`].
+    async fn scan_targets(&self, parent: &Scan, targets: Vec<String>) {
         let child_sem = Arc::new(Semaphore::new(MAX_SUBDOMAIN_SCANS));
         let mut tasks = Vec::new();
-        for sub in subdomains {
+        for target in targets {
             let child = Scan {
                 id: Uuid::new_v4(),
                 kind: ScanKind::Url,
-                target: format!("https://{sub}"),
+                target: format!("https://{target}"),
                 status: ScanStatus::Queued,
-                parent_scan_id: Some(scan.id),
+                parent_scan_id: Some(parent.id),
                 created_at: Utc::now(),
                 started_at: None,
                 finished_at: None,
                 finding_count: 0,
             };
             if let Err(e) = db::insert_scan(&self.db, &child).await {
-                tracing::error!("failed to persist child scan {sub}: {e}");
+                tracing::error!("failed to persist child scan {target}: {e}");
                 continue;
             }
             self.events.create(child.id).await;
@@ -269,7 +299,6 @@ impl WorkerCore {
         for task in tasks {
             let _ = task.await;
         }
-        Ok(())
     }
 
     async fn persist(&self, scan: &Scan, findings: Vec<Finding>) {

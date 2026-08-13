@@ -27,9 +27,10 @@ pub fn open_scan_ws(scan_id: Uuid, on_event: impl Fn(ScanEvent) + 'static) {
     let onmsg = Closure::<dyn Fn(MessageEvent)>::new(move |ev: MessageEvent| {
         if let Ok(text) = ev.data().dyn_into::<js_sys::JsString>()
             && let Some(raw) = text.as_string()
-                && let Ok(event) = serde_json::from_str::<ScanEvent>(&raw) {
-                    on_event(event);
-                }
+            && let Ok(event) = serde_json::from_str::<ScanEvent>(&raw)
+        {
+            on_event(event);
+        }
     });
     socket.set_onmessage(Some(onmsg.as_ref().unchecked_ref()));
     onmsg.forget();

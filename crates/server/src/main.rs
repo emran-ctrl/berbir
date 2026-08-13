@@ -29,7 +29,7 @@ async fn main() -> anyhow::Result<()> {
     let scanner = Scanner::new(templates.clone(), 20)?;
 
     let events = jobs::EventBus::default();
-    let jobs = jobs::JobManager::start(pool.clone(), scanner, events);
+    let jobs = jobs::JobManager::start(pool.clone(), scanner, events)?;
     let state = state::AppState {
         db: pool,
         jobs,

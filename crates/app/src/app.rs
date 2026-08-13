@@ -34,7 +34,7 @@ pub fn App() -> impl IntoView {
         <div class="wrap">
             <header>
                 <h1>"berbir"</h1>
-                <span>"100% Rust vulnerability scanner"</span>
+                <span>"Rust vulnerability scanner"</span>
             </header>
             <ScanForm templates={templates} set_scans={set_scans} />
             <ScansList scans={scans} selected={selected} set_selected={set_selected} />
@@ -210,13 +210,14 @@ fn FindingsView(selected: ReadSignal<Option<Uuid>>) -> impl IntoView {
                                 }
                             }
                             ScanEvent::StatusChange { scan_id, status }
-                                if active_now == Some(scan_id) => {
-                                    set_scan.update(|s| {
-                                        if let Some(s) = s {
-                                            s.status = status;
-                                        }
-                                    });
-                                }
+                                if active_now == Some(scan_id) =>
+                            {
+                                set_scan.update(|s| {
+                                    if let Some(s) = s {
+                                        s.status = status;
+                                    }
+                                });
+                            }
                             _ => {}
                         }
                     });

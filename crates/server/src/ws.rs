@@ -36,9 +36,10 @@ async fn handle_socket(socket: WebSocket, scan_id: Uuid, state: AppState) {
             status: scan.status,
         };
         if let Ok(text) = serde_json::to_string(&event)
-            && sink.send(Message::Text(text.into())).await.is_err() {
-                return;
-            }
+            && sink.send(Message::Text(text.into())).await.is_err()
+        {
+            return;
+        }
     }
 
     loop {

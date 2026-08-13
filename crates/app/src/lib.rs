@@ -1,10 +1,5 @@
-mod api;
-mod app;
-mod ws;
+pub mod api;
+pub mod app;
+pub mod ws;
 
-use leptos::prelude::*;
-
-pub fn main() {
-    console_error_panic_hook::set_once();
-    mount_to_body(|| view! { <app::App /> });
-}
+pub use app::App;
