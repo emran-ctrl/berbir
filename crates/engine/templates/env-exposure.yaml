@@ -1,0 +1,20 @@
+id: env-file-exposure
+info:
+  name: Sensitive Environment File Exposed
+  severity: high
+http:
+  - method: GET
+    path:
+      - "{{BaseURL}}/.env"
+      - "{{BaseURL}}/.env.bak"
+      - "{{BaseURL}}/config/.env"
+      - "{{BaseURL}}/env"
+    matchers:
+      - type: word
+        part: body
+        words:
+          - "DB_PASSWORD"
+          - "SECRET_KEY"
+          - "AWS_SECRET_ACCESS_KEY"
+          - "DATABASE_URL"
+          - "POSTGRES_PASSWORD"

@@ -1,0 +1,16 @@
+id: missing-security-headers
+info:
+  name: Missing Security Headers
+  severity: low
+http:
+  - method: GET
+    path:
+      - "{{BaseURL}}/"
+    matchers:
+      - type: word
+        part: header
+        words:
+          - "x-content-type-options:"
+          - "strict-transport-security:"
+          - "x-frame-options:"
+        negative: true

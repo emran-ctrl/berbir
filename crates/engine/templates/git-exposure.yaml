@@ -1,0 +1,13 @@
+id: git-directory-exposure
+info:
+  name: Exposed Git Repository
+  severity: high
+http:
+  - method: GET
+    path:
+      - "{{BaseURL}}/.git/HEAD"
+    matchers:
+      - type: word
+        part: body
+        words:
+          - "ref: refs/heads/"

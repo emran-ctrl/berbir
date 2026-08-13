@@ -1,0 +1,19 @@
+id: exposed-admin-paths
+info:
+  name: Potentially Exposed Admin or Documentation Path
+  severity: low
+http:
+  - method: GET
+    path:
+      - "{{BaseURL}}/admin"
+      - "{{BaseURL}}/wp-admin"
+      - "{{BaseURL}}/swagger-ui.html"
+      - "{{BaseURL}}/api-docs"
+      - "{{BaseURL}}/actuator"
+    matchers:
+      - type: status
+        part: status_code
+        status:
+          - 200
+          - 301
+          - 302

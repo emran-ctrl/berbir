@@ -1,0 +1,74 @@
+<!DOCTYPE html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>berbir — Rust vulnerability scanner</title>
+    <link data-trunk rel="rust" data-wasm-opt="0" />
+    <style>
+      :root {
+        --bg: #0d1117;
+        --panel: #161b22;
+        --border: #30363d;
+        --text: #c9d1d9;
+        --muted: #8b949e;
+        --accent: #58a6ff;
+        --crit: #f85149;
+        --high: #d29922;
+        --med: #d29922;
+        --low: #58a6ff;
+        --info: #8b949e;
+        --ok: #3fb950;
+      }
+      * { box-sizing: border-box; }
+      body {
+        margin: 0;
+        background: var(--bg);
+        color: var(--text);
+        font-family: ui-monospace, SFMono-Regular, "SF Mono", Menlo, Consolas, monospace;
+      }
+      .wrap { max-width: 1080px; margin: 0 auto; padding: 24px 16px 64px; }
+      header { display: flex; align-items: baseline; gap: 12px; border-bottom: 1px solid var(--border); padding-bottom: 12px; margin-bottom: 20px; }
+      header h1 { font-size: 20px; margin: 0; color: var(--accent); }
+      header span { color: var(--muted); font-size: 13px; }
+      .panel { background: var(--panel); border: 1px solid var(--border); border-radius: 8px; padding: 16px; margin-bottom: 16px; }
+      .row { display: flex; gap: 8px; flex-wrap: wrap; align-items: center; }
+      input[type="text"] {
+        flex: 1; min-width: 260px;
+        background: var(--bg); border: 1px solid var(--border); border-radius: 6px;
+        color: var(--text); padding: 8px 10px; font: inherit;
+      }
+      select, button {
+        background: var(--bg); border: 1px solid var(--border); border-radius: 6px;
+        color: var(--text); padding: 8px 10px; font: inherit; cursor: pointer;
+      }
+      button.primary { background: var(--accent); border-color: var(--accent); color: #0d1117; font-weight: 700; }
+      button:hover { filter: brightness(1.15); }
+      table { width: 100%; border-collapse: collapse; font-size: 13px; }
+      th, td { text-align: left; padding: 8px 10px; border-bottom: 1px solid var(--border); vertical-align: top; }
+      th { color: var(--muted); font-weight: 600; }
+      tr:hover td { background: rgba(88,166,255,0.06); }
+      .badge { display: inline-block; padding: 2px 8px; border-radius: 10px; font-size: 11px; text-transform: uppercase; font-weight: 700; }
+      .b-critical { background: var(--crit); color: #fff; }
+      .b-high { background: var(--high); color: #0d1117; }
+      .b-medium { background: var(--med); color: #0d1117; }
+      .b-low { background: var(--low); color: #0d1117; }
+      .b-info { background: var(--info); color: #0d1117; }
+      .status { color: var(--muted); }
+      .muted { color: var(--muted); }
+      a { color: var(--accent); text-decoration: none; }
+      a:hover { text-decoration: underline; }
+      .clickable { cursor: pointer; }
+      .err { color: var(--crit); font-size: 13px; margin-top: 8px; }
+      .live { color: var(--ok); }
+      .empty { color: var(--muted); padding: 16px; text-align: center; }
+      .severity-dot { display: inline-block; width: 8px; height: 8px; border-radius: 50%; margin-right: 6px; }
+      .s-critical { background: var(--crit); }
+      .s-high { background: var(--high); }
+      .s-medium { background: var(--med); }
+      .s-low { background: var(--low); }
+      .s-info { background: var(--info); }
+    </style>
+  </head>
+  <body></body>
+</html>

@@ -1,0 +1,17 @@
+# Rust / Cargo build output
+/target
+**/*.rs.bk
+
+# Compiled frontend bundle (rebuilt with `trunk build`)
+/crates/app/dist
+
+# SQLite databases
+*.db
+*.db-wal
+*.db-shm
+
+# Editor / OS
+.vscode/
+.idea/
+*.swp
+.DS_Store

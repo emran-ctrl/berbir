@@ -1,0 +1,28 @@
+[package]
+name = "berbir-app"
+version.workspace = true
+edition.workspace = true
+
+[lib]
+crate-type = ["cdylib", "rlib"]
+
+[dependencies]
+berbir-shared = { path = "../shared" }
+leptos.workspace = true
+gloo-net.workspace = true
+serde.workspace = true
+serde_json.workspace = true
+wasm-bindgen = "0.2"
+wasm-bindgen-futures = "0.4"
+js-sys = "0.3"
+web-sys = { version = "0.3", features = ["WebSocket", "MessageEvent", "console", "Location", "Window"] }
+gloo-timers = { version = "0.3", features = ["futures"] }
+gloo-utils = "0.2"
+console_error_panic_hook = "0.1"
+futures.workspace = true
+chrono.workspace = true
+uuid = { workspace = true, features = ["js"] }
+getrandom = { version = "0.3", features = ["wasm_js"] }
+
+[package.metadata.leptos]
+# no extra config needed for CSR

@@ -1,0 +1,20 @@
+id: backup-file-exposure
+info:
+  name: Exposed Backup or Database Dump
+  severity: medium
+http:
+  - method: GET
+    path:
+      - "{{BaseURL}}/backup.sql"
+      - "{{BaseURL}}/db.sql"
+      - "{{BaseURL}}/database.sql"
+      - "{{BaseURL}}/backup.zip"
+      - "{{BaseURL}}/site.tar.gz"
+    matchers:
+      - type: word
+        part: body
+        words:
+          - "CREATE TABLE"
+          - "INSERT INTO"
+          - "BEGIN TRANSACTION"
+          - "DROP TABLE"
