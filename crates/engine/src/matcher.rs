@@ -2,6 +2,7 @@
 
 use regex::Regex;
 
+use crate::dsl;
 use crate::template::{Condition, Matcher, MatcherType, Part};
 
 /// A minimal, normalized HTTP response.
@@ -15,11 +16,20 @@ pub struct Response {
 
 /// Evaluate a matcher against a response.
 /// Returns `Some(evidence)` when the matcher (honoring `negative`) succeeds.
+/// Unsupported matcher kinds never match.
 pub fn evaluate(matcher: &Matcher, resp: &Response) -> Option<String> {
-    let matched = match matcher.part {
-        Part::Status => match_status(matcher, resp),
-        Part::Body => match_text(matcher, &resp.body),
-        Part::Header => match_headers(matcher, &resp.headers),
+    let matched = match matcher.mtype {
+        // `type` wins over `part`: status/dsl matchers ignore the part field.
+        MatcherType::Status => match_status(matcher, resp),
+        MatcherType::Dsl => match_dsl(matcher, resp),
+        MatcherType::Word | MatcherType::Regex => match matcher.part {
+            Part::Status => match_status(matcher, resp),
+            Part::Body => match_text(matcher, &resp.body),
+            Part::Header => match_headers(matcher, &resp.headers),
+            Part::All => match_text(matcher, &all_text(resp)),
+            Part::Unknown => None,
+        },
+        MatcherType::Unknown => None,
     };
 
     match (matched, matcher.negative) {
@@ -27,6 +37,16 @@ pub fn evaluate(matcher: &Matcher, resp: &Response) -> Option<String> {
         (None, true) => Some("no match (negative)".into()),
         _ => None,
     }
+}
+
+fn all_text(resp: &Response) -> String {
+    let headers = resp
+        .headers
+        .iter()
+        .map(|(k, v)| format!("{k}: {v}"))
+        .collect::<Vec<_>>()
+        .join("\n");
+    format!("{headers}\n{}", resp.body)
 }
 
 fn match_status(matcher: &Matcher, resp: &Response) -> Option<String> {
@@ -50,7 +70,7 @@ fn match_text(matcher: &Matcher, text: &str) -> Option<String> {
     match matcher.mtype {
         MatcherType::Word => match_word(matcher, text),
         MatcherType::Regex => match_regex(matcher, text),
-        MatcherType::Status => None,
+        MatcherType::Status | MatcherType::Dsl | MatcherType::Unknown => None,
     }
 }
 
@@ -100,6 +120,42 @@ fn match_regex(matcher: &Matcher, text: &str) -> Option<String> {
     None
 }
 
+/// DSL matchers evaluate against the full response context; unsupported or
+/// unparsable expressions fail closed (no match).
+fn match_dsl(matcher: &Matcher, resp: &Response) -> Option<String> {
+    if matcher.dsl.is_empty() {
+        return None;
+    }
+    let ctx = dsl::Context {
+        body: resp.body.clone(),
+        header: resp
+            .headers
+            .iter()
+            .map(|(k, v)| format!("{k}: {v}"))
+            .collect::<Vec<_>>()
+            .join("\n"),
+        status_code: resp.status,
+    };
+    match matcher.condition {
+        Condition::Or => matcher
+            .dsl
+            .iter()
+            .find(|expr| dsl::evaluate(expr, &ctx) == Some(true))
+            .cloned(),
+        Condition::And => {
+            if matcher
+                .dsl
+                .iter()
+                .all(|expr| dsl::evaluate(expr, &ctx) == Some(true))
+            {
+                matcher.dsl.first().cloned()
+            } else {
+                None
+            }
+        }
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -119,6 +175,7 @@ mod tests {
             words: words.iter().map(|s| s.to_string()).collect(),
             regex: vec![],
             status: vec![],
+            dsl: vec![],
             condition: Condition::Or,
             negative: false,
         }
@@ -161,6 +218,7 @@ mod tests {
             words: vec![],
             regex: vec!["aws_access_key_id=[A-Z0-9]{20}".into()],
             status: vec![],
+            dsl: vec![],
             condition: Condition::Or,
             negative: false,
         };
@@ -178,6 +236,7 @@ mod tests {
             status: vec![301, 302, 200],
             condition: Condition::Or,
             negative: false,
+            dsl: vec![],
         };
         assert!(evaluate(&m, &resp(302, "")).is_some());
         assert!(evaluate(&m, &resp(404, "")).is_none());
@@ -191,10 +250,26 @@ mod tests {
             words: vec!["server: nginx".into()],
             regex: vec![],
             status: vec![],
+            dsl: vec![],
             condition: Condition::Or,
             negative: false,
         };
         assert!(evaluate(&m, &resp(200, "")).is_some());
+    }
+
+    #[test]
+    fn all_part_matches_headers_or_body() {
+        let m = Matcher {
+            mtype: MatcherType::Word,
+            part: Part::All,
+            words: vec!["nginx".into()],
+            regex: vec![],
+            status: vec![],
+            dsl: vec![],
+            condition: Condition::Or,
+            negative: false,
+        };
+        assert!(evaluate(&m, &resp(200, "body without marker")).is_some());
     }
 
     #[test]
@@ -205,6 +280,7 @@ mod tests {
             words: vec!["x-content-type-options: nosniff".into()],
             regex: vec![],
             status: vec![],
+            dsl: vec![],
             condition: Condition::Or,
             negative: true,
         };
@@ -220,5 +296,36 @@ mod tests {
             )
             .is_none()
         );
+    }
+
+    #[test]
+    fn dsl_matcher() {
+        let m = Matcher {
+            mtype: MatcherType::Dsl,
+            part: Part::Body,
+            words: vec![],
+            regex: vec![],
+            status: vec![],
+            dsl: vec!["contains(body, 'admin')".into()],
+            condition: Condition::Or,
+            negative: false,
+        };
+        assert!(evaluate(&m, &resp(200, "admin")).is_some());
+        assert!(evaluate(&m, &resp(200, "nothing here")).is_none());
+    }
+
+    #[test]
+    fn unknown_matcher_kind_never_matches() {
+        let m = Matcher {
+            mtype: MatcherType::Unknown,
+            part: Part::Body,
+            words: vec!["anything".into()],
+            regex: vec![],
+            status: vec![],
+            dsl: vec![],
+            condition: Condition::Or,
+            negative: false,
+        };
+        assert!(evaluate(&m, &resp(200, "anything")).is_none());
     }
 }

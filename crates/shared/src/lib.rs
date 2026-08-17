@@ -151,4 +151,8 @@ pub struct CreateScanRequest {
     /// Optional port range for `PortScan` (default "1-1000").
     #[serde(default)]
     pub ports: Option<String>,
+    /// Restrict a `Url` scan to specific template ids. Empty/absent runs the
+    /// default (built-in) templates.
+    #[serde(default)]
+    pub template_ids: Option<Vec<String>>,
 }

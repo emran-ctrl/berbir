@@ -54,7 +54,7 @@ impl EventBus {
 }
 
 enum JobCommand {
-    Run(Scan),
+    Run(Scan, Vec<String>),
 }
 
 /// Submit new scans to the worker.
@@ -123,7 +123,10 @@ impl JobManager {
             )
             .await;
         self.tx
-            .send(JobCommand::Run(scan.clone()))
+            .send(JobCommand::Run(
+                scan.clone(),
+                req.template_ids.clone().unwrap_or_default(),
+            ))
             .await
             .map_err(|_| anyhow::anyhow!("job queue shut down"))?;
         Ok(scan)
@@ -133,7 +136,7 @@ impl JobManager {
 impl Worker {
     async fn run(mut self) {
         while let Some(cmd) = self.rx.recv().await {
-            let JobCommand::Run(scan) = cmd;
+            let JobCommand::Run(scan, template_ids) = cmd;
             let permit = match self.core.concurrency.clone().acquire_owned().await {
                 Ok(p) => p,
                 Err(_) => return,
@@ -141,7 +144,7 @@ impl Worker {
             let core = self.core.clone();
             tokio::spawn(async move {
                 let _permit = permit;
-                core.handle_scan(scan).await;
+                core.handle_scan(scan, template_ids).await;
             });
         }
         tracing::info!("job worker stopped");
@@ -149,10 +152,10 @@ impl Worker {
 }
 
 impl WorkerCore {
-    async fn handle_scan(&self, scan: Scan) {
+    async fn handle_scan(&self, scan: Scan, template_ids: Vec<String>) {
         self.set_status(&scan, ScanStatus::Running).await;
         let result = match scan.kind {
-            ScanKind::Url => self.run_url_scan(&scan, &scan.target).await,
+            ScanKind::Url => self.run_url_scan(&scan, &scan.target, &template_ids).await,
             ScanKind::PortScan => self.run_port_scan(&scan).await,
             ScanKind::Domain => self.run_domain_scan(&scan).await,
         };
@@ -171,7 +174,7 @@ impl WorkerCore {
     /// `Domain` branch (which would make the future's `Send` bound circular).
     async fn handle_child_url(&self, scan: Scan) {
         self.set_status(&scan, ScanStatus::Running).await;
-        let result = self.run_url_scan(&scan, &scan.target).await;
+        let result = self.run_url_scan(&scan, &scan.target, &[]).await;
         let status = match result {
             Ok(()) => ScanStatus::Completed,
             Err(e) => {
@@ -182,8 +185,13 @@ impl WorkerCore {
         self.set_status(&scan, status).await;
     }
 
-    async fn run_url_scan(&self, scan: &Scan, base_url: &str) -> anyhow::Result<()> {
-        let findings = self.scanner.run(scan.id, base_url).await;
+    async fn run_url_scan(
+        &self,
+        scan: &Scan,
+        base_url: &str,
+        template_ids: &[String],
+    ) -> anyhow::Result<()> {
+        let findings = self.scanner.run(scan.id, base_url, template_ids).await;
         self.persist(scan, findings).await;
         Ok(())
     }
@@ -378,6 +386,7 @@ mod tests {
             kind: ScanKind::Url,
             target: "https://example.com".into(),
             ports: None,
+            template_ids: None,
         };
         assert!(validate(&ok_url).is_ok());
 
@@ -385,6 +394,7 @@ mod tests {
             kind: ScanKind::Url,
             target: "not a url".into(),
             ports: None,
+            template_ids: None,
         };
         assert!(validate(&bad).is_err());
 
@@ -392,6 +402,7 @@ mod tests {
             kind: ScanKind::Domain,
             target: "example.com/path".into(),
             ports: None,
+            template_ids: None,
         };
         assert!(validate(&domain).is_err());
 
@@ -399,6 +410,7 @@ mod tests {
             kind: ScanKind::PortScan,
             target: "127.0.0.1:80".into(),
             ports: None,
+            template_ids: None,
         };
         assert!(validate(&portscan).is_err());
     }

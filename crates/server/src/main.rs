@@ -24,7 +24,10 @@ async fn main() -> anyhow::Result<()> {
     let bind = std::env::var("BERBIR_BIND").unwrap_or_else(|_| "127.0.0.1:3000".to_string());
 
     let pool = db::connect(&db_url).await?;
-    let templates = berbir_engine::builtin_templates()?;
+    let templates_dir = std::env::var("BERBIR_TEMPLATES")
+        .ok()
+        .map(std::path::PathBuf::from);
+    let templates = berbir_engine::load_template_registry(templates_dir.as_deref())?;
     tracing::info!("loaded {} templates", templates.len());
     let scanner = Scanner::new(templates.clone(), 20)?;
 

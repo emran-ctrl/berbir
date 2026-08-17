@@ -70,6 +70,7 @@ fn ScanForm(
                 kind: scan_kind,
                 target: target_value,
                 ports: None,
+                template_ids: None,
             };
             match api::create_scan(req).await {
                 Ok(_) => {

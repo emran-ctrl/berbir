@@ -16,6 +16,27 @@ pub async fn create_scan(
     State(state): State<AppState>,
     Json(req): Json<CreateScanRequest>,
 ) -> Response {
+    if let Some(ids) = &req.template_ids {
+        let known: std::collections::HashSet<&str> =
+            state.templates.iter().map(|t| t.id.as_str()).collect();
+        let unknown: Vec<&String> = ids
+            .iter()
+            .filter(|id| !known.contains(id.as_str()))
+            .collect();
+        if !unknown.is_empty() {
+            let joined = unknown
+                .iter()
+                .map(|s| s.as_str())
+                .collect::<Vec<_>>()
+                .join(", ");
+            return (
+                StatusCode::BAD_REQUEST,
+                Json(serde_json::json!({ "error": format!("unknown template ids: {joined}") })),
+            )
+                .into_response();
+        }
+    }
+
     match state.jobs.submit(req).await {
         Ok(scan) => (StatusCode::CREATED, Json(scan)).into_response(),
         Err(e) => (
