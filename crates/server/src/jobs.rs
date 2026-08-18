@@ -157,7 +157,7 @@ impl WorkerCore {
         let result = match scan.kind {
             ScanKind::Url => self.run_url_scan(&scan, &scan.target, &template_ids).await,
             ScanKind::PortScan => self.run_port_scan(&scan).await,
-            ScanKind::Domain => self.run_domain_scan(&scan).await,
+            ScanKind::Domain => self.run_domain_scan(&scan, &template_ids).await,
         };
         let status = match result {
             Ok(()) => ScanStatus::Completed,
@@ -172,9 +172,9 @@ impl WorkerCore {
     /// Dedicated handler for subdomain child scans (always `Url` kind). Kept
     /// separate from [`handle_scan`] so the spawned task never re-enters the
     /// `Domain` branch (which would make the future's `Send` bound circular).
-    async fn handle_child_url(&self, scan: Scan) {
+    async fn handle_child_url(&self, scan: Scan, template_ids: Vec<String>) {
         self.set_status(&scan, ScanStatus::Running).await;
-        let result = self.run_url_scan(&scan, &scan.target, &[]).await;
+        let result = self.run_url_scan(&scan, &scan.target, &template_ids).await;
         let status = match result {
             Ok(()) => ScanStatus::Completed,
             Err(e) => {
@@ -226,7 +226,7 @@ impl WorkerCore {
         Ok(())
     }
 
-    async fn run_domain_scan(&self, scan: &Scan) -> anyhow::Result<()> {
+    async fn run_domain_scan(&self, scan: &Scan, template_ids: &[String]) -> anyhow::Result<()> {
         let domain = scan.target.clone();
         match berbir_engine::discovery::enumerate_subdomains(&self.client, &domain).await {
             Ok(subdomains) => {
@@ -246,9 +246,9 @@ impl WorkerCore {
                 );
                 if subdomains.is_empty() {
                     tracing::info!("no subdomains for {domain}; scanning apex");
-                    self.scan_targets(scan, vec![domain]).await;
+                    self.scan_targets(scan, vec![domain], template_ids).await;
                 } else {
-                    self.scan_targets(scan, subdomains).await;
+                    self.scan_targets(scan, subdomains, template_ids).await;
                 }
             }
             Err(e) => {
@@ -265,7 +265,7 @@ impl WorkerCore {
                         },
                     )
                     .await;
-                self.scan_targets(scan, vec![domain]).await;
+                self.scan_targets(scan, vec![domain], template_ids).await;
             }
         }
         Ok(())
@@ -273,7 +273,7 @@ impl WorkerCore {
 
     /// Spawn a child `Url` scan per target (subdomain hostname or apex domain),
     /// capped by [`MAX_SUBDOMAIN_SCANS`].
-    async fn scan_targets(&self, parent: &Scan, targets: Vec<String>) {
+    async fn scan_targets(&self, parent: &Scan, targets: Vec<String>, template_ids: &[String]) {
         let child_sem = Arc::new(Semaphore::new(MAX_SUBDOMAIN_SCANS));
         let mut tasks = Vec::new();
         for target in targets {
@@ -296,12 +296,13 @@ impl WorkerCore {
 
             let sem = child_sem.clone();
             let core = self.clone();
+            let child_ids = template_ids.to_vec();
             tasks.push(tokio::spawn(async move {
                 let _permit = match sem.acquire_owned().await {
                     Ok(p) => p,
                     Err(_) => return,
                 };
-                core.handle_child_url(child).await;
+                core.handle_child_url(child, child_ids).await;
             }));
         }
         for task in tasks {
@@ -387,6 +388,7 @@ mod tests {
             target: "https://example.com".into(),
             ports: None,
             template_ids: None,
+            mode: None,
         };
         assert!(validate(&ok_url).is_ok());
 
@@ -395,6 +397,7 @@ mod tests {
             target: "not a url".into(),
             ports: None,
             template_ids: None,
+            mode: None,
         };
         assert!(validate(&bad).is_err());
 
@@ -403,6 +406,7 @@ mod tests {
             target: "example.com/path".into(),
             ports: None,
             template_ids: None,
+            mode: None,
         };
         assert!(validate(&domain).is_err());
 
@@ -411,6 +415,7 @@ mod tests {
             target: "127.0.0.1:80".into(),
             ports: None,
             template_ids: None,
+            mode: None,
         };
         assert!(validate(&portscan).is_err());
     }

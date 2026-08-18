@@ -1,6 +1,8 @@
 use std::collections::{BTreeSet, HashMap};
 
-use berbir_shared::{CreateScanRequest, Finding, Scan, ScanEvent, ScanKind, TemplateInfo};
+use berbir_shared::{
+    CreateScanRequest, Finding, Scan, ScanEvent, ScanKind, ScanMode, TemplateInfo,
+};
 use leptos::ev::MouseEvent;
 use leptos::prelude::*;
 use leptos::task::spawn_local;
@@ -57,6 +59,13 @@ fn ScanForm(
     let (busy, set_busy) = signal(false);
     let (search, set_search) = signal(String::new());
     let (selected_templates, set_selected_templates) = signal(BTreeSet::<String>::new());
+    let (mode, set_mode) = signal(Some(ScanMode::Simple));
+    let (show_templates, set_show_templates) = signal(false);
+
+    let select_mode = move |m: Option<ScanMode>| {
+        set_mode.set(m);
+        set_show_templates.set(m.is_none());
+    };
 
     let submit = move |_| {
         let target_value = target.get().trim().to_string();
@@ -67,6 +76,7 @@ fn ScanForm(
         set_error.set(None);
         set_busy.set(true);
         let scan_kind = kind.get();
+        let mode = mode.get();
         let template_ids = selected_templates.get();
         let set_busy = set_busy;
         let set_error = set_error;
@@ -76,11 +86,12 @@ fn ScanForm(
                 kind: scan_kind,
                 target: target_value,
                 ports: None,
-                template_ids: if template_ids.is_empty() {
-                    None
-                } else {
-                    Some(template_ids.into_iter().collect())
+                template_ids: match mode {
+                    Some(_) => None,
+                    None if template_ids.is_empty() => None,
+                    None => Some(template_ids.into_iter().collect()),
                 },
+                mode,
             };
             match api::create_scan(req).await {
                 Ok(_) => {
@@ -95,6 +106,17 @@ fn ScanForm(
     };
 
     let clear_selection = move |_| set_selected_templates.update(|s| s.clear());
+
+    let toggle_template = move |tid: String, checked: bool| {
+        set_selected_templates.update(|s| {
+            if checked {
+                s.insert(tid);
+            } else {
+                s.remove(&tid);
+            }
+        });
+        set_mode.set(None);
+    };
 
     view! {
         <div class="panel">
@@ -132,30 +154,75 @@ fn ScanForm(
             </div>
             <Show when=move || kind.get() != ScanKind::PortScan fallback=|| ()>
                 <div class="tpl-picker">
+                    <div class="row mode-btns" style="gap:6px; flex-wrap:wrap">
+                        <span class="muted" style="font-size:12px">"mode:"</span>
+                        {move || {
+                            let list = templates.get();
+                            let total = list.len();
+                            let count = |m: ScanMode| {
+                                list.iter()
+                                    .filter(|t| berbir_shared::template_matches_mode(m, &t.tags))
+                                    .count()
+                            };
+                            let current = mode.get();
+                            let cls = move |m: Option<ScanMode>| {
+                                if current == m { "mode-btn active" } else { "mode-btn" }
+                            };
+                            view! {
+                                <button class={cls(Some(ScanMode::Simple))} on:click=move |_| select_mode(Some(ScanMode::Simple))>
+                                    {format!("Simple — {}", fmt_count(count(ScanMode::Simple)))}
+                                </button>
+                                <button class={cls(Some(ScanMode::Medium))} on:click=move |_| select_mode(Some(ScanMode::Medium))>
+                                    {format!("Medium — {}", fmt_count(count(ScanMode::Medium)))}
+                                </button>
+                                <button class={cls(Some(ScanMode::Deep))} on:click=move |_| select_mode(Some(ScanMode::Deep))>
+                                    {format!("Deep — {}", fmt_count(total))}
+                                </button>
+                                <button class={cls(None)} on:click=move |_| select_mode(None)>
+                                    "Custom"
+                                </button>
+                            }
+                        }}
+                    </div>
                     <div class="row" style="gap:8px; flex-wrap: wrap">
                         <span class="muted" style="font-size:12px">
                             {move || {
                                 let total = templates.get().len();
-                                let sel = selected_templates.get();
-                                if sel.is_empty() {
-                                    format!("templates: all {total} selected")
-                                } else {
-                                    format!("templates: {} of {total} selected", sel.len())
+                                match mode.get() {
+                                    Some(m) => format!("{m:?} mode — {} templates", fmt_count(total)),
+                                    None => {
+                                        let sel = selected_templates.get();
+                                        if sel.is_empty() {
+                                            format!("custom: all {} templates", fmt_count(total))
+                                        } else {
+                                            format!(
+                                                "custom: {} of {} selected",
+                                                fmt_count(sel.len()),
+                                                fmt_count(total)
+                                            )
+                                        }
+                                    }
                                 }
                             }}
                         </span>
-                        <Show when=move || !selected_templates.get().is_empty() fallback=|| ()>
+                        <Show when=move || mode.get().is_some() fallback=|| ()>
+                            <button class="toggle-btn" on:click=move |_| set_show_templates.update(|v| *v = !*v)>
+                                {move || if show_templates.get() { "Hide templates" } else { "Show templates" }}
+                            </button>
+                        </Show>
+                        <Show when=move || mode.get().is_none() && !selected_templates.get().is_empty() fallback=|| ()>
                             <button class="toggle-btn" title="Run all templates" on:click=clear_selection>
                                 "Clear selection"
                             </button>
                         </Show>
                     </div>
-                    <input
-                        type="text"
-                        placeholder="Filter templates by id or name…"
-                        prop:value=move || search.get()
-                        on:input=move |ev| set_search.set(event_target_value(&ev))
-                    />
+                    <Show when=move || mode.get().is_none() || show_templates.get() fallback=|| ()>
+                        <input
+                            type="text"
+                            placeholder="Filter templates by id or name…"
+                            prop:value=move || search.get()
+                            on:input=move |ev| set_search.set(event_target_value(&ev))
+                        />
                     <div class="tpl-list">
                         {move || {
                             let q = search.get().to_lowercase();
@@ -180,14 +247,7 @@ fn ScanForm(
                                     let badge = format!("badge b-{}", t.severity);
                                     let toggle_tid = tid.clone();
                                     let toggle = move |ev: web_sys::Event| {
-                                        let checked = event_target_checked(&ev);
-                                        set_selected_templates.update(|s| {
-                                            if checked {
-                                                s.insert(toggle_tid.clone());
-                                            } else {
-                                                s.remove(&toggle_tid);
-                                            }
-                                        });
+                                        toggle_template(toggle_tid.clone(), event_target_checked(&ev));
                                     };
                                     view! {
                                         <label class="tpl-row">
@@ -230,6 +290,7 @@ fn ScanForm(
                             }
                         }}
                     </div>
+                    </Show>
                 </div>
             </Show>
             <Show when=move || error.get().is_some() fallback=|| ()>
@@ -237,6 +298,18 @@ fn ScanForm(
             </Show>
         </div>
     }
+}
+
+fn fmt_count(n: usize) -> String {
+    let digits = n.to_string();
+    let mut out = String::with_capacity(digits.len() + digits.len() / 3);
+    for (i, c) in digits.chars().enumerate() {
+        if i > 0 && (digits.len() - i).is_multiple_of(3) {
+            out.push(',');
+        }
+        out.push(c);
+    }
+    out
 }
 
 fn trash_icon() -> impl IntoView {

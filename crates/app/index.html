@@ -87,6 +87,16 @@
         display: inline-flex; align-items: center; gap: 4px; white-space: nowrap;
       }
       .toggle-btn:hover { border-color: var(--accent); color: var(--accent); }
+      .mode-btns { align-items: center; }
+      .mode-btn {
+        background: transparent; border: 1px solid var(--border); color: var(--muted);
+        border-radius: 6px; padding: 3px 10px; font: inherit; font-size: 12px; cursor: pointer;
+        white-space: nowrap;
+      }
+      .mode-btn:hover { border-color: var(--accent); color: var(--accent); }
+      .mode-btn.active {
+        background: var(--accent); border-color: var(--accent); color: #0d1117; font-weight: 700;
+      }
       .err { color: var(--crit); font-size: 13px; margin-top: 8px; }
       .tpl-picker { margin-top: 10px; display: flex; flex-direction: column; gap: 8px; }
       .tpl-list {

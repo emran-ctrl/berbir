@@ -14,8 +14,13 @@ use crate::state::AppState;
 /// `POST /api/scans` — create and enqueue a scan.
 pub async fn create_scan(
     State(state): State<AppState>,
-    Json(req): Json<CreateScanRequest>,
+    Json(mut req): Json<CreateScanRequest>,
 ) -> Response {
+    if let Some(mode) = req.mode {
+        req.template_ids = Some(resolve_mode_ids(mode, &state.templates));
+        req.mode = None;
+    }
+
     if let Some(ids) = &req.template_ids {
         let known: std::collections::HashSet<&str> =
             state.templates.iter().map(|t| t.id.as_str()).collect();
@@ -117,9 +122,33 @@ pub async fn list_templates(
             id: t.id.clone(),
             name: t.info.name.clone(),
             severity: t.info.severity.clone(),
+            tags: t.info.tags.clone(),
         })
         .collect();
     Ok(Json(summaries))
+}
+
+/// Resolve a scan mode to a template id list. Templates whose tags match the
+/// mode are selected; if nothing matches (e.g. built-in templates without
+/// tags) it falls back to every registered template so the scan still runs.
+fn resolve_mode_ids(
+    mode: berbir_shared::ScanMode,
+    templates: &[berbir_engine::Template],
+) -> Vec<String> {
+    let matched: Vec<String> = templates
+        .iter()
+        .filter(|t| berbir_shared::template_matches_mode(mode, &t.info.tags))
+        .map(|t| t.id.clone())
+        .collect();
+    if matched.is_empty() {
+        tracing::warn!(
+            "mode {mode:?} matched no templates; running all {}",
+            templates.len()
+        );
+        templates.iter().map(|t| t.id.clone()).collect()
+    } else {
+        matched
+    }
 }
 
 /// Error type serialized as `{ "error": "..." }`.
@@ -149,5 +178,45 @@ impl IntoResponse for ApiError {
             Json(serde_json::json!({ "error": self.0.to_string() })),
         )
             .into_response()
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use berbir_shared::ScanMode;
+
+    fn template(id: &str, tags: &[&str]) -> berbir_engine::Template {
+        berbir_engine::Template::from_yaml_str(&format!(
+            "id: {id}\ninfo:\n  name: {id}\n  severity: info\n  tags: {}\n",
+            tags.join(", ")
+        ))
+        .expect("template should parse")
+    }
+
+    fn ids(v: &[&str]) -> Vec<String> {
+        v.iter().map(|s| s.to_string()).collect()
+    }
+
+    #[test]
+    fn mode_selects_matching_tags() {
+        let templates = vec![
+            template("t-exposure", &["exposure", "misconfig"]),
+            template("t-cve", &["cve", "rce"]),
+            template("t-osint", &["osint"]),
+        ];
+        let simple = resolve_mode_ids(ScanMode::Simple, &templates);
+        assert_eq!(simple, ids(&["t-exposure"]));
+        let medium = resolve_mode_ids(ScanMode::Medium, &templates);
+        assert_eq!(medium, ids(&["t-exposure", "t-cve"]));
+        let deep = resolve_mode_ids(ScanMode::Deep, &templates);
+        assert_eq!(deep, ids(&["t-exposure", "t-cve", "t-osint"]));
+    }
+
+    #[test]
+    fn mode_with_no_matches_falls_back_to_all() {
+        let templates = vec![template("t-untagged", &[]), template("t-osint", &["osint"])];
+        let simple = resolve_mode_ids(ScanMode::Simple, &templates);
+        assert_eq!(simple, ids(&["t-untagged", "t-osint"]));
     }
 }

@@ -25,7 +25,7 @@ to run it all on one port.
   - `url` — run the template engine against a URL (6 bundled templates, capped body sizes).
   - `port_scan` — subprocess to [RustScan](https://github.com/RustScan/RustScan) (`rustscan -a host --range 1-1000 -g`); skipped gracefully with a log line if the binary is missing.
   - `domain` — passive subdomain discovery via crt.sh, then a child `url` scan per discovered subdomain (parent/child hierarchy in the DB).
-- **Real-time dashboard** — Leptos CSR WASM frontend served by the backend on one port; findings and status stream over WebSocket (`/ws/scans/{id}`). Nested scan-history cards with collapsible subdomain children, per-scan delete, and a searchable template picker.
+- **Real-time dashboard** — Leptos CSR WASM frontend served by the backend on one port; findings and status stream over WebSocket (`/ws/scans/{id}`). Nested scan-history cards with collapsible subdomain children, per-scan delete, scan modes (simple/medium/deep/custom), and a searchable template picker.
 - **Markdown reports** — on-demand per scan at `/api/scans/{id}/report.md`.
 - **SQLite persistence** — scans and findings with recursive aggregation for domain children.
 
@@ -98,7 +98,7 @@ templates, and serves the dashboard + API on a single port.
 
 | Method | Path | Description |
 |--------|------|-------------|
-| `POST` | `/api/scans` | Create a scan. Body: `{"kind":"url"\|"port_scan"\|"domain","target":"…","ports":null,"template_ids":["…"]}`. `template_ids` is optional — restrict a `url`/`domain` scan to specific template ids; empty/absent runs every registered template. |
+| `POST` | `/api/scans` | Create a scan. Body: `{"kind":"url"\|"port_scan"\|"domain","target":"…","ports":null,"template_ids":["…"],"mode":"simple"\|"medium"\|"deep"}`. `template_ids` is optional — restrict a `url`/`domain` scan to specific template ids; empty/absent runs every registered template. `mode` selects a preset template set by tag (see below); resolved server-side and combined with `template_ids` when both are present. |
 | `GET` | `/api/scans` | List scans (newest first). |
 | `GET` | `/api/scans/{id}` | Scan detail + aggregated findings (includes domain children). |
 | `DELETE` | `/api/scans/{id}` | Delete a scan, its descendant scans, and findings. |
@@ -146,8 +146,25 @@ BERBIR_TEMPLATES=~/nuclei-templates/http cargo run --release -p berbir-server
 Only the `http/` directory is worth loading — the engine implements the HTTP protocol
 only, so `dns`/`ssl`/`network`/`headless`/`code`/… templates load but never run. A recent
 checkout loads ~10.9k templates (of which ~10.7k have usable matchers). Running all of
-them per URL is slow (~1 min per URL) and noisy, so the dashboard's template picker lets
-you select a subset per scan.
+them per URL is slow (~1 min per URL) and noisy, so the dashboard lets you pick how much
+to run.
+
+### Scan modes
+
+The dashboard defaults to a **Simple** scan so a fresh target isn't hammered by all ~10k
+templates at once. Three presets (plus **Custom**, the manual searchable template picker)
+select templates by their `info.tags`:
+
+| Mode | Tags | ~Templates (nuclei-templates) |
+|------|------|-------------------------------|
+| **Simple** | `default-login`, `exposure`, `misconfig`, `takeover`, `debug`, `unauth`, `auth-bypass`, `directory-listing` | ~3.0k |
+| **Medium** | Simple + `rce`, `sqli`, `lfi`, `ssti`, `xss`, `ssrf`, `file-upload`, `cve`, `disclosure`, `config` | ~6.9k |
+| **Deep** | all templates | ~10.9k |
+
+Modes are resolved server-side via `mode` in the `POST /api/scans` body, so they work from
+`curl` too. If a mode matches nothing (e.g. built-in templates without tags), the server
+falls back to every registered template. Domain child scans inherit the parent's selection.
+Any manual template selection switches the dashboard to `custom`.
 
 Negative matching (`negative: true`) reports when a value is **absent** — used by the
 `missing-security-headers` template. Multiple steps must **all** match for a finding

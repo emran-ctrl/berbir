@@ -26,10 +26,42 @@ pub struct Info {
     pub name: String,
     #[serde(default = "default_severity")]
     pub severity: String,
+    /// Discovery/vuln-class tags (`cve`, `exposure`, `rce`, …) used by scan
+    /// modes. Nuclei writes these as a comma string, an inline list, or a
+    /// block list.
+    #[serde(default, deserialize_with = "deserialize_tags")]
+    pub tags: Vec<String>,
 }
 
 fn default_severity() -> String {
     "info".to_string()
+}
+
+/// Accept tags as a comma-separated string, a YAML list, or a null/absent
+/// value (empty vec).
+fn deserialize_tags<'de, D>(deserializer: D) -> std::result::Result<Vec<String>, D::Error>
+where
+    D: serde::Deserializer<'de>,
+{
+    let value = serde_yaml::Value::deserialize(deserializer)?;
+    Ok(match value {
+        serde_yaml::Value::String(s) => s
+            .split(',')
+            .map(|t| t.trim().to_string())
+            .filter(|t| !t.is_empty())
+            .collect(),
+        serde_yaml::Value::Sequence(list) => list
+            .into_iter()
+            .filter_map(|v| match v {
+                serde_yaml::Value::String(s) => {
+                    let t = s.trim().to_string();
+                    (!t.is_empty()).then_some(t)
+                }
+                _ => None,
+            })
+            .collect(),
+        _ => Vec::new(),
+    })
 }
 
 /// One HTTP request within a template. Extra Nuclei keys (`raw`,
@@ -280,9 +312,91 @@ http:
         .expect("should parse");
         let headers = &t.http[0].headers;
         assert_eq!(headers.len(), 2);
-        assert_eq!(headers[0].name, "X-Version");
-        assert_eq!(headers[0].value, "3");
-        assert_eq!(headers[1].name, "X-Enabled");
-        assert_eq!(headers[1].value, "true");
+        let by_name = |name: &str| {
+            headers
+                .iter()
+                .find(|h| h.name == name)
+                .unwrap_or_else(|| panic!("missing header {name}"))
+        };
+        assert_eq!(by_name("X-Version").value, "3");
+        assert_eq!(by_name("X-Enabled").value, "true");
+    }
+
+    #[test]
+    fn tags_accept_comma_string() {
+        let t = Template::from_yaml_str(
+            r#"
+id: tags-comma
+info:
+  name: Tags as comma string
+  severity: info
+  tags: cve, rce ,exposure
+http:
+  - path: ["{{BaseURL}}/x"]
+    matchers:
+      - type: word
+        words: ["ok"]
+"#,
+        )
+        .expect("should parse");
+        assert_eq!(t.info.tags, vec!["cve", "rce", "exposure"]);
+    }
+
+    #[test]
+    fn tags_accept_inline_and_block_lists() {
+        let inline = Template::from_yaml_str(
+            r#"
+id: tags-inline
+info:
+  name: Tags as inline list
+  severity: info
+  tags: [cve, ssrf]
+http:
+  - path: ["{{BaseURL}}/x"]
+    matchers:
+      - type: word
+        words: ["ok"]
+"#,
+        )
+        .expect("should parse inline");
+        assert_eq!(inline.info.tags, vec!["cve", "ssrf"]);
+
+        let block = Template::from_yaml_str(
+            r#"
+id: tags-block
+info:
+  name: Tags as block list
+  severity: info
+  tags:
+    - cve
+    - lfi
+http:
+  - path: ["{{BaseURL}}/x"]
+    matchers:
+      - type: word
+        words: ["ok"]
+"#,
+        )
+        .expect("should parse block");
+        assert_eq!(block.info.tags, vec!["cve", "lfi"]);
+    }
+
+    #[test]
+    fn tags_absent_defaults_to_empty() {
+        let t = Template::from_yaml_str(
+            r#"
+id: tags-absent
+info:
+  name: No tags
+  severity: info
+http:
+  - path: ["{{BaseURL}}/x"]
+    matchers:
+      - type: word
+        words: ["ok"]
+"#,
+        )
+        .expect("should parse");
+        assert!(t.info.tags.is_empty());
     }
 }

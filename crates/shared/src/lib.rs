@@ -140,6 +140,66 @@ pub struct TemplateInfo {
     pub id: String,
     pub name: String,
     pub severity: String,
+    pub tags: Vec<String>,
+}
+
+/// Preset template selection modes. Resolved server-side to a template id set
+/// via [`template_matches_mode`]; `Deep` matches every template.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "snake_case")]
+pub enum ScanMode {
+    Simple,
+    Medium,
+    Deep,
+}
+
+impl ScanMode {
+    /// Tags that select templates for this mode. `Deep` matches everything.
+    pub fn tags(self) -> &'static [&'static str] {
+        match self {
+            ScanMode::Simple => &[
+                "default-login",
+                "exposure",
+                "misconfig",
+                "takeover",
+                "debug",
+                "unauth",
+                "auth-bypass",
+                "directory-listing",
+            ],
+            ScanMode::Medium => &[
+                "default-login",
+                "exposure",
+                "misconfig",
+                "takeover",
+                "debug",
+                "unauth",
+                "auth-bypass",
+                "directory-listing",
+                "rce",
+                "sqli",
+                "lfi",
+                "ssti",
+                "xss",
+                "ssrf",
+                "file-upload",
+                "cve",
+                "disclosure",
+                "config",
+            ],
+            ScanMode::Deep => &[],
+        }
+    }
+}
+
+/// Whether a template (given its `tags`) is part of a scan mode.
+pub fn template_matches_mode(mode: ScanMode, tags: &[String]) -> bool {
+    match mode {
+        ScanMode::Deep => true,
+        ScanMode::Simple | ScanMode::Medium => {
+            tags.iter().any(|t| mode.tags().contains(&t.as_str()))
+        }
+    }
 }
 
 /// Payload for creating a new scan.
@@ -155,4 +215,52 @@ pub struct CreateScanRequest {
     /// default (built-in) templates.
     #[serde(default)]
     pub template_ids: Option<Vec<String>>,
+    /// Optional preset template selection. Resolved server-side; combined with
+    /// `template_ids` if both are present. Absent keeps the `template_ids`
+    /// behavior.
+    #[serde(default)]
+    pub mode: Option<ScanMode>,
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    fn tags(v: &[&str]) -> Vec<String> {
+        v.iter().map(|s| s.to_string()).collect()
+    }
+
+    #[test]
+    fn mode_tags_are_curated() {
+        assert!(!ScanMode::Simple.tags().contains(&"cve"));
+        assert!(ScanMode::Medium.tags().contains(&"cve"));
+    }
+
+    #[test]
+    fn simple_matches_only_its_tags() {
+        assert!(template_matches_mode(
+            ScanMode::Simple,
+            &tags(&["exposure"])
+        ));
+        assert!(template_matches_mode(
+            ScanMode::Simple,
+            &tags(&["default-login"])
+        ));
+        assert!(!template_matches_mode(ScanMode::Simple, &tags(&["cve"])));
+        assert!(!template_matches_mode(ScanMode::Simple, &tags(&["rce"])));
+        assert!(!template_matches_mode(ScanMode::Simple, &tags(&[])));
+    }
+
+    #[test]
+    fn medium_adds_vuln_classes() {
+        assert!(template_matches_mode(ScanMode::Medium, &tags(&["cve"])));
+        assert!(template_matches_mode(ScanMode::Medium, &tags(&["sqli"])));
+        assert!(!template_matches_mode(ScanMode::Medium, &tags(&["osint"])));
+    }
+
+    #[test]
+    fn deep_matches_everything() {
+        assert!(template_matches_mode(ScanMode::Deep, &tags(&[])));
+        assert!(template_matches_mode(ScanMode::Deep, &tags(&["anything"])));
+    }
 }
