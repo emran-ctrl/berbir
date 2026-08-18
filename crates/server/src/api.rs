@@ -53,6 +53,15 @@ pub async fn list_scans(State(state): State<AppState>) -> Result<Json<Vec<Scan>>
     Ok(Json(scans))
 }
 
+/// `DELETE /api/scans/{id}` — remove a scan, its descendant scans, and findings.
+pub async fn delete_scan(State(state): State<AppState>, Path(id): Path<Uuid>) -> Response {
+    match db::delete_scan(&state.db, id).await {
+        Ok(true) => StatusCode::NO_CONTENT.into_response(),
+        Ok(false) => ApiError::not_found().into_response(),
+        Err(e) => ApiError::from(e).into_response(),
+    }
+}
+
 /// `GET /api/scans/{id}` — a scan plus its aggregated findings.
 pub async fn get_scan(
     State(state): State<AppState>,

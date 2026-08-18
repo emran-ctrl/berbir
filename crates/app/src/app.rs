@@ -1,4 +1,7 @@
+use std::collections::{BTreeSet, HashMap};
+
 use berbir_shared::{CreateScanRequest, Finding, Scan, ScanEvent, ScanKind, TemplateInfo};
+use leptos::ev::MouseEvent;
 use leptos::prelude::*;
 use leptos::task::spawn_local;
 use uuid::Uuid;
@@ -34,10 +37,10 @@ pub fn App() -> impl IntoView {
         <div class="wrap">
             <header>
                 <h1>"berbir"</h1>
-                <span>"Rust vulnerability scanner"</span>
+                <span>"vulnerability scanner"</span>
             </header>
             <ScanForm templates={templates} set_scans={set_scans} />
-            <ScansList scans={scans} selected={selected} set_selected={set_selected} />
+            <ScansList scans={scans} selected={selected} set_selected={set_selected} set_scans={set_scans} />
             <FindingsView selected={selected} />
         </div>
     }
@@ -52,6 +55,8 @@ fn ScanForm(
     let (kind, set_kind) = signal(ScanKind::Url);
     let (error, set_error) = signal(None::<String>);
     let (busy, set_busy) = signal(false);
+    let (search, set_search) = signal(String::new());
+    let (selected_templates, set_selected_templates) = signal(BTreeSet::<String>::new());
 
     let submit = move |_| {
         let target_value = target.get().trim().to_string();
@@ -62,6 +67,7 @@ fn ScanForm(
         set_error.set(None);
         set_busy.set(true);
         let scan_kind = kind.get();
+        let template_ids = selected_templates.get();
         let set_busy = set_busy;
         let set_error = set_error;
         let set_scans = set_scans;
@@ -70,7 +76,11 @@ fn ScanForm(
                 kind: scan_kind,
                 target: target_value,
                 ports: None,
-                template_ids: None,
+                template_ids: if template_ids.is_empty() {
+                    None
+                } else {
+                    Some(template_ids.into_iter().collect())
+                },
             };
             match api::create_scan(req).await {
                 Ok(_) => {
@@ -83,6 +93,8 @@ fn ScanForm(
             set_busy.set(false);
         });
     };
+
+    let clear_selection = move |_| set_selected_templates.update(|s| s.clear());
 
     view! {
         <div class="panel">
@@ -116,12 +128,133 @@ fn ScanForm(
                 </button>
             </div>
             <div class="muted" style="font-size:12px; margin-top:8px">
-                {move || format!("{} built-in signatures ready", templates.get().len())}
+                {move || format!("{} templates ready", templates.get().len())}
             </div>
+            <Show when=move || kind.get() != ScanKind::PortScan fallback=|| ()>
+                <div class="tpl-picker">
+                    <div class="row" style="gap:8px; flex-wrap: wrap">
+                        <span class="muted" style="font-size:12px">
+                            {move || {
+                                let total = templates.get().len();
+                                let sel = selected_templates.get();
+                                if sel.is_empty() {
+                                    format!("templates: all {total} selected")
+                                } else {
+                                    format!("templates: {} of {total} selected", sel.len())
+                                }
+                            }}
+                        </span>
+                        <Show when=move || !selected_templates.get().is_empty() fallback=|| ()>
+                            <button class="toggle-btn" title="Run all templates" on:click=clear_selection>
+                                "Clear selection"
+                            </button>
+                        </Show>
+                    </div>
+                    <input
+                        type="text"
+                        placeholder="Filter templates by id or name…"
+                        prop:value=move || search.get()
+                        on:input=move |ev| set_search.set(event_target_value(&ev))
+                    />
+                    <div class="tpl-list">
+                        {move || {
+                            let q = search.get().to_lowercase();
+                            let list = templates.get();
+                            let filtered = list
+                                .iter()
+                                .filter(|t| {
+                                    q.is_empty()
+                                        || t.id.to_lowercase().contains(&q)
+                                        || t.name.to_lowercase().contains(&q)
+                                })
+                                .collect::<Vec<_>>();
+                            let total = filtered.len();
+                            let shown = if q.is_empty() { 200.min(total) } else { total };
+                            filtered
+                                .into_iter()
+                                .take(shown)
+                                .map(|t| {
+                                    let tid = t.id.clone();
+                                    let t_name = t.name.clone();
+                                    let checked = selected_templates.get().contains(&tid);
+                                    let badge = format!("badge b-{}", t.severity);
+                                    let toggle_tid = tid.clone();
+                                    let toggle = move |ev: web_sys::Event| {
+                                        let checked = event_target_checked(&ev);
+                                        set_selected_templates.update(|s| {
+                                            if checked {
+                                                s.insert(toggle_tid.clone());
+                                            } else {
+                                                s.remove(&toggle_tid);
+                                            }
+                                        });
+                                    };
+                                    view! {
+                                        <label class="tpl-row">
+                                            <input
+                                                type="checkbox"
+                                                prop:checked=checked
+                                                on:change=toggle
+                                            />
+                                            <span class={badge}>{t.severity.clone()}</span>
+                                            <code>{tid}</code>
+                                            <span class="muted tpl-name">{t_name}</span>
+                                        </label>
+                                    }
+                                })
+                                .collect::<Vec<_>>()
+                        }}
+                    </div>
+                    <div class="muted" style="font-size:11px">
+                        {move || {
+                            let q = search.get();
+                            let total = templates.get().len();
+                            if q.is_empty() {
+                                if total > 200 {
+                                    format!("showing the first 200 of {total} — type to search the rest")
+                                } else {
+                                    String::new()
+                                }
+                            } else {
+                                format!("{} matching templates", {
+                                    let q = q.to_lowercase();
+                                    templates
+                                        .get()
+                                        .iter()
+                                        .filter(|t| {
+                                            t.id.to_lowercase().contains(&q)
+                                                || t.name.to_lowercase().contains(&q)
+                                        })
+                                        .count()
+                                })
+                            }
+                        }}
+                    </div>
+                </div>
+            </Show>
             <Show when=move || error.get().is_some() fallback=|| ()>
                 <div class="err">{move || error.get().unwrap_or_default()}</div>
             </Show>
         </div>
+    }
+}
+
+fn trash_icon() -> impl IntoView {
+    view! {
+        <svg
+            xmlns="http://www.w3.org/2000/svg"
+            width="14"
+            height="14"
+            viewBox="0 0 24 24"
+            fill="none"
+            stroke="currentColor"
+            stroke-width="2"
+            stroke-linecap="round"
+            stroke-linejoin="round"
+        >
+            <polyline points="3 6 5 6 21 6"/>
+            <path d="M19 6v14a2 2 0 0 1-2 2H7a2 2 0 0 1-2-2V6m3 0V4a2 2 0 0 1 2-2h4a2 2 0 0 1 2 2v2"/>
+        </svg>
     }
 }
 
@@ -130,44 +263,153 @@ fn ScansList(
     scans: ReadSignal<Vec<Scan>>,
     selected: ReadSignal<Option<Uuid>>,
     set_selected: WriteSignal<Option<Uuid>>,
+    set_scans: WriteSignal<Vec<Scan>>,
 ) -> impl IntoView {
+    let (collapsed, set_collapsed) = signal(HashMap::<Uuid, bool>::new());
+
+    let on_delete = move |id: Uuid| {
+        let set_scans = set_scans;
+        let set_selected = set_selected;
+        let selected = selected;
+        let set_collapsed = set_collapsed;
+        spawn_local(async move {
+            if api::delete_scan(id).await.is_ok()
+                && let Ok(list) = api::list_scans().await
+            {
+                if let Some(s) = selected.get()
+                    && !list.iter().any(|x| x.id == s)
+                {
+                    set_selected.set(None);
+                }
+                set_collapsed.update(|m| m.retain(|k, _| list.iter().any(|x| x.id == *k)));
+                set_scans.set(list);
+            }
+        });
+    };
+
     view! {
         <div class="panel">
             <h3 style="margin-top:0">"Scan history"</h3>
             <Show when=move || !scans.get().is_empty() fallback=|| view! {
                 <div class="empty">"No scans yet — submit one above."</div>
             }>
-                <table>
-                    <thead>
-                        <tr>
-                            <th>"Target"</th>
-                            <th>"Kind"</th>
-                            <th>"Status"</th>
-                            <th>"Findings"</th>
-                            <th>"Started"</th>
-                        </tr>
-                    </thead>
-                    <tbody>
-                        {move || scans.get().iter().map(|s| {
-                            let id = s.id;
-                            let selected_row = selected.get() == Some(id);
-                            let style = if selected_row { "background:rgba(88,166,255,0.10)" } else { "" };
-                            view! {
-                                <tr
-                                    class="clickable"
-                                    style=style
-                                    on:click=move |_| set_selected.set(Some(id))
-                                >
-                                    <td>{s.target.clone()}</td>
-                                    <td>{s.kind.as_str()}</td>
-                                    <td><span class="status">{s.status.as_str()}</span></td>
-                                    <td>{s.finding_count}</td>
-                                    <td>{s.started_at.map(|t| t.format("%H:%M:%S").to_string()).unwrap_or_default()}</td>
-                                </tr>
+                <div class="scan-grid">
+                    {move || {
+                        let list = scans.get();
+                        let mut by_parent: HashMap<Uuid, Vec<Scan>> = HashMap::new();
+                        for s in &list {
+                            if let Some(pid) = s.parent_scan_id {
+                                by_parent.entry(pid).or_default().push(s.clone());
                             }
-                        }).collect::<Vec<_>>()}
-                    </tbody>
-                </table>
+                        }
+                        list.into_iter()
+                            .filter(|s| s.parent_scan_id.is_none())
+                            .map(|s| {
+                                let kids = by_parent.remove(&s.id).unwrap_or_default();
+                                let has_kids = !kids.is_empty();
+                                let kid_count = kids.len();
+                                let count = if has_kids {
+                                    kids.iter().map(|k| k.finding_count).sum::<i64>()
+                                } else {
+                                    s.finding_count
+                                };
+                                let selected_here = selected.get() == Some(s.id);
+                                let card_class = if selected_here {
+                                    "scan-card selected"
+                                } else {
+                                    "scan-card"
+                                };
+                                let sid = s.id;
+                                let s_target = s.target.clone();
+                                let s_kind = s.kind.as_str();
+                                let s_status = s.status.as_str();
+                                let s_started = s
+                                    .started_at
+                                    .map(|t| t.format("%H:%M:%S").to_string())
+                                    .unwrap_or_default();
+                                let select_card = move |_| set_selected.set(Some(sid));
+                                let delete_card = move |ev: MouseEvent| {
+                                    ev.stop_propagation();
+                                    on_delete(sid);
+                                };
+                                let toggle_children = move |ev: MouseEvent| {
+                                    ev.stop_propagation();
+                                    set_collapsed.update(|m| {
+                                        let e = m.entry(sid).or_insert(true);
+                                        *e = !*e;
+                                    });
+                                };
+                                view! {
+                                    <div class=card_class on:click=select_card>
+                                        <div class="card-head">
+                                            <div>
+                                                <span class="card-target">{s_target}</span>
+                                                <span class="muted">" (" {s_kind} ")"</span>
+                                            </div>
+                                            <div class="row" style="gap:8px">
+                                                <Show when=move || has_kids fallback=|| ()>
+                                                    <button
+                                                        class="toggle-btn"
+                                                        title="Toggle child scans"
+                                                        on:click=toggle_children
+                                                    >
+                                                        {move || {
+                                                            if collapsed.get().get(&sid).copied().unwrap_or(true) {
+                                                                "▸"
+                                                            } else {
+                                                                "▾"
+                                                            }
+                                                        }}
+                                                        <span class="muted">
+                                                            {move || format!("{} {}", kid_count, if kid_count == 1 { "child" } else { "children" })}
+                                                        </span>
+                                                    </button>
+                                                </Show>
+                                                <span class="status">{s_status}</span>
+                                                <span class="muted">{count} " findings"</span>
+                                                <span class="muted">{s_started}</span>
+                                                <button class="delete-btn" title="Delete scan" on:click=delete_card>{trash_icon()}</button>
+                                            </div>
+                                        </div>
+                                        <Show when=move || has_kids && !collapsed.get().get(&sid).copied().unwrap_or(true) fallback=|| ()>
+                                            <div class="children">
+                                                {kids.iter().map(|c| {
+                                                    let cid = c.id;
+                                                    let c_selected = selected.get() == Some(cid);
+                                                    let c_class = if c_selected {
+                                                        "child-card selected"
+                                                    } else {
+                                                        "child-card"
+                                                    };
+                                                    let c_target = c.target.clone();
+                                                    let c_status = c.status.as_str();
+                                                    let c_count = c.finding_count;
+                                                    let select_child = move |_| set_selected.set(Some(cid));
+                                                    let delete_child = move |ev: MouseEvent| {
+                                                        ev.stop_propagation();
+                                                        on_delete(cid);
+                                                    };
+                                                    view! {
+                                                        <div class=c_class on:click=select_child>
+                                                            <div class="card-head">
+                                                                <span class="card-target">{c_target}</span>
+                                                                <div class="row" style="gap:8px">
+                                                                    <span class="status">{c_status}</span>
+                                                                    <span class="muted">{c_count} " findings"</span>
+                                                                    <button class="delete-btn" title="Delete scan" on:click=delete_child>{trash_icon()}</button>
+                                                                </div>
+                                                            </div>
+                                                        </div>
+                                                    }
+                                                }).collect::<Vec<_>>()}
+                                            </div>
+                                        </Show>
+                                    </div>
+                                }
+                            })
+                            .collect::<Vec<_>>()
+                    }}
+                </div>
             </Show>
         </div>
     }

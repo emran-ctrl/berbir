@@ -177,3 +177,105 @@ pub async fn get_findings_recursive(pool: &SqlitePool, scan_id: Uuid) -> Result<
     .await?;
     Ok(rows.iter().map(row_to_finding).collect())
 }
+
+/// Delete a scan, every descendant scan (e.g. a domain scan's subdomain
+/// children), and their findings. Returns `false` if the scan doesn't exist.
+pub async fn delete_scan(pool: &SqlitePool, scan_id: Uuid) -> Result<bool> {
+    let mut tx = pool.begin().await?;
+
+    let exists: i64 = sqlx::query_scalar("SELECT COUNT(*) FROM scans WHERE id = ?")
+        .bind(scan_id.to_string())
+        .fetch_one(&mut *tx)
+        .await?;
+    if exists == 0 {
+        return Ok(false);
+    }
+
+    // Recursively collect the scan and all descendants so children of a domain
+    // scan (and any findings) are removed too.
+    let tree = "WITH RECURSIVE tree(id) AS ( \
+                    SELECT id FROM scans WHERE id = ? \
+                    UNION ALL \
+                    SELECT s.id FROM scans s JOIN tree t ON s.parent_scan_id = t.id \
+                ) SELECT id FROM tree";
+    sqlx::query(&format!("DELETE FROM findings WHERE scan_id IN ({tree})"))
+        .bind(scan_id.to_string())
+        .execute(&mut *tx)
+        .await?;
+    sqlx::query(&format!("DELETE FROM scans WHERE id IN ({tree})"))
+        .bind(scan_id.to_string())
+        .execute(&mut *tx)
+        .await?;
+
+    tx.commit().await?;
+    Ok(true)
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[tokio::test]
+    async fn delete_scan_removes_descendants_and_findings() {
+        let path = std::env::temp_dir().join(format!("berbir-delete-{}.db", Uuid::new_v4()));
+        let pool = connect(&format!("sqlite:{}?mode=rwc", path.display()))
+            .await
+            .unwrap();
+
+        let parent = Scan {
+            id: Uuid::new_v4(),
+            kind: ScanKind::Domain,
+            target: "example.com".into(),
+            status: ScanStatus::Completed,
+            parent_scan_id: None,
+            created_at: Utc::now(),
+            started_at: Some(Utc::now()),
+            finished_at: None,
+            finding_count: 0,
+        };
+        let child = Scan {
+            id: Uuid::new_v4(),
+            kind: ScanKind::Url,
+            target: "https://a.example.com".into(),
+            status: ScanStatus::Completed,
+            parent_scan_id: Some(parent.id),
+            created_at: Utc::now(),
+            started_at: Some(Utc::now()),
+            finished_at: None,
+            finding_count: 0,
+        };
+        insert_scan(&pool, &parent).await.unwrap();
+        insert_scan(&pool, &child).await.unwrap();
+        insert_findings(
+            &pool,
+            &[Finding {
+                id: Uuid::new_v4(),
+                scan_id: child.id,
+                template_id: "t".into(),
+                name: "n".into(),
+                severity: Severity::Medium,
+                url: "http://x".into(),
+                evidence: "e".into(),
+                detected_at: Utc::now(),
+            }],
+        )
+        .await
+        .unwrap();
+
+        assert!(delete_scan(&pool, parent.id).await.unwrap());
+        assert!(get_scan(&pool, parent.id).await.unwrap().is_none());
+        assert!(get_scan(&pool, child.id).await.unwrap().is_none());
+        assert!(
+            get_findings_recursive(&pool, child.id)
+                .await
+                .unwrap()
+                .is_empty()
+        );
+        // Deleting a scan that no longer exists reports false.
+        assert!(!delete_scan(&pool, parent.id).await.unwrap());
+
+        let _ = std::fs::remove_file(&path);
+        let _ = std::fs::remove_file(path.with_extension("db-shm"));
+        let _ = std::fs::remove_file(path.with_extension("db-wal"));
+    }
+}

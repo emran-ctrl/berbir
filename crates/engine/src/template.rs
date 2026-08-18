@@ -61,12 +61,15 @@ fn default_method() -> String {
     "GET".to_string()
 }
 
-/// Accept both Nuclei's header map (`Key: Value`) and a list of pairs.
+/// Accept both Nuclei's header map (`Key: Value`), a list of `Key: Value`
+/// strings, and a list of `{name, value}` pairs. Map values may be any YAML
+/// scalar (numbers, booleans), not just strings.
 #[derive(Deserialize)]
 #[serde(untagged)]
 enum HeadersInput {
-    Map(HashMap<String, String>),
+    Map(HashMap<String, serde_yaml::Value>),
     List(Vec<Header>),
+    Strings(Vec<String>),
 }
 
 fn deserialize_headers<'de, D>(deserializer: D) -> std::result::Result<Vec<Header>, D::Error>
@@ -77,10 +80,33 @@ where
     Ok(match input {
         HeadersInput::Map(map) => map
             .into_iter()
-            .map(|(name, value)| Header { name, value })
+            .map(|(name, value)| Header {
+                name,
+                value: scalar_to_string(value),
+            })
             .collect(),
         HeadersInput::List(list) => list,
+        HeadersInput::Strings(list) => list
+            .into_iter()
+            .map(|s| {
+                let (name, value) = s.split_once(':').unwrap_or((s.as_str(), ""));
+                Header {
+                    name: name.trim().to_string(),
+                    value: value.trim().to_string(),
+                }
+            })
+            .collect(),
     })
+}
+
+fn scalar_to_string(v: serde_yaml::Value) -> String {
+    match v {
+        serde_yaml::Value::String(s) => s,
+        serde_yaml::Value::Number(n) => n.to_string(),
+        serde_yaml::Value::Bool(b) => b.to_string(),
+        serde_yaml::Value::Null => String::new(),
+        other => format!("{other:?}"),
+    }
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -175,5 +201,88 @@ impl Template {
             }
         }
         Ok(t)
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn headers_accept_list_of_strings() {
+        let t = Template::from_yaml_str(
+            r#"
+id: headers-string-list
+info:
+  name: Headers as list of strings
+  severity: info
+http:
+  - method: GET
+    path: ["{{BaseURL}}/x"]
+    headers:
+      - "X-Custom: hello"
+      - "X-Empty:"
+    matchers:
+      - type: status
+        status: [200]
+"#,
+        )
+        .expect("should parse");
+        let headers = &t.http[0].headers;
+        assert_eq!(headers.len(), 2);
+        assert_eq!(headers[0].name, "X-Custom");
+        assert_eq!(headers[0].value, "hello");
+        assert_eq!(headers[1].name, "X-Empty");
+        assert_eq!(headers[1].value, "");
+    }
+
+    #[test]
+    fn headers_accept_map_and_pairs() {
+        let t = Template::from_yaml_str(
+            r#"
+id: headers-map
+info:
+  name: Headers as map
+  severity: info
+http:
+  - method: GET
+    path: ["{{BaseURL}}/x"]
+    headers:
+      X-Custom: hello
+    matchers:
+      - type: word
+        words: ["ok"]
+"#,
+        )
+        .expect("should parse");
+        assert_eq!(t.http[0].headers[0].name, "X-Custom");
+    }
+
+    #[test]
+    fn headers_accept_numeric_map_values() {
+        let t = Template::from_yaml_str(
+            r#"
+id: headers-numeric
+info:
+  name: Headers with numeric values
+  severity: info
+http:
+  - method: GET
+    path: ["{{BaseURL}}/x"]
+    headers:
+      X-Version: 3
+      X-Enabled: true
+    matchers:
+      - type: word
+        words: ["ok"]
+"#,
+        )
+        .expect("should parse");
+        let headers = &t.http[0].headers;
+        assert_eq!(headers.len(), 2);
+        assert_eq!(headers[0].name, "X-Version");
+        assert_eq!(headers[0].value, "3");
+        assert_eq!(headers[1].name, "X-Enabled");
+        assert_eq!(headers[1].value, "true");
     }
 }

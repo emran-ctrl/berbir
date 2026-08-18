@@ -53,6 +53,7 @@ fn router(state: state::AppState, dist_dir: &str) -> Router {
             axum::routing::post(api::create_scan).get(api::list_scans),
         )
         .route("/api/scans/{id}", axum::routing::get(api::get_scan))
+        .route("/api/scans/{id}", axum::routing::delete(api::delete_scan))
         .route(
             "/api/scans/{id}/findings",
             axum::routing::get(api::get_findings),

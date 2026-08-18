@@ -3,15 +3,24 @@ use gloo_net::http::Request;
 use uuid::Uuid;
 
 pub async fn create_scan(req: CreateScanRequest) -> Result<Scan, String> {
-    Request::post("/api/scans")
+    let resp = Request::post("/api/scans")
         .json(&req)
         .map_err(|e| e.to_string())?
         .send()
         .await
-        .map_err(|e| e.to_string())?
-        .json::<Scan>()
-        .await
-        .map_err(|e| e.to_string())
+        .map_err(|e| e.to_string())?;
+    if resp.status() != 201 && resp.status() != 200 {
+        return Err(server_error(&resp)
+            .await
+            .unwrap_or_else(|| format!("scan failed with status {}", resp.status())));
+    }
+    resp.json::<Scan>().await.map_err(|e| e.to_string())
+}
+
+async fn server_error(resp: &gloo_net::http::Response) -> Option<String> {
+    let text = resp.text().await.ok()?;
+    let body: serde_json::Value = serde_json::from_str(&text).ok()?;
+    body.get("error").and_then(|e| e.as_str()).map(String::from)
 }
 
 pub async fn list_scans() -> Result<Vec<Scan>, String> {
@@ -32,6 +41,17 @@ pub async fn get_scan(id: Uuid) -> Result<ScanDetail, String> {
         .json::<ScanDetail>()
         .await
         .map_err(|e| e.to_string())
+}
+
+pub async fn delete_scan(id: Uuid) -> Result<(), String> {
+    let resp = Request::delete(&format!("/api/scans/{id}"))
+        .send()
+        .await
+        .map_err(|e| e.to_string())?;
+    if resp.status() != 204 && resp.status() != 200 {
+        return Err(format!("delete failed with status {}", resp.status()));
+    }
+    Ok(())
 }
 
 pub async fn list_templates() -> Result<Vec<TemplateInfo>, String> {

@@ -3,7 +3,7 @@
   <head>
     <meta charset="utf-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1" />
-    <title>berbir — Rust vulnerability scanner</title>
+    <title>berbir —  vulnerability scanner</title>
     <link data-trunk rel="rust" data-bin="berbir-app" data-wasm-opt="0" />
     <style>
       :root {
@@ -59,7 +59,49 @@
       a { color: var(--accent); text-decoration: none; }
       a:hover { text-decoration: underline; }
       .clickable { cursor: pointer; }
+      .scan-grid { display: flex; flex-direction: column; gap: 10px; }
+      .scan-card, .child-card {
+        background: var(--bg); border: 1px solid var(--border); border-radius: 8px;
+        padding: 10px 12px; cursor: pointer; transition: border-color 0.15s, background 0.15s;
+      }
+      .scan-card.selected, .child-card.selected {
+        border-color: var(--accent); background: rgba(88,166,255,0.08);
+      }
+      .scan-card:hover, .child-card:hover { border-color: var(--accent); }
+      .card-head { display: flex; justify-content: space-between; align-items: center; gap: 8px; }
+      .card-target { font-weight: 700; word-break: break-all; }
+      .children {
+        margin-top: 10px; padding-left: 14px; border-left: 2px solid var(--border);
+        display: flex; flex-direction: column; gap: 8px;
+      }
+      .delete-btn {
+        background: transparent; border: 1px solid var(--border); color: var(--crit);
+        border-radius: 6px; padding: 4px 8px; font: inherit; font-size: 12px; cursor: pointer;
+        display: inline-flex; align-items: center;
+      }
+      .delete-btn:hover { background: var(--crit); color: #0d1117; border-color: var(--crit); }
+      .delete-btn svg { display: block; }
+      .toggle-btn {
+        background: transparent; border: 1px solid var(--border); color: var(--muted);
+        border-radius: 6px; padding: 4px 8px; font: inherit; font-size: 12px; cursor: pointer;
+        display: inline-flex; align-items: center; gap: 4px; white-space: nowrap;
+      }
+      .toggle-btn:hover { border-color: var(--accent); color: var(--accent); }
       .err { color: var(--crit); font-size: 13px; margin-top: 8px; }
+      .tpl-picker { margin-top: 10px; display: flex; flex-direction: column; gap: 8px; }
+      .tpl-list {
+        max-height: 220px; overflow-y: auto;
+        border: 1px solid var(--border); border-radius: 6px; padding: 4px 6px;
+      }
+      .tpl-row {
+        display: flex; align-items: center; gap: 8px; padding: 3px 4px;
+        border-radius: 4px; cursor: pointer; font-size: 12px;
+      }
+      .tpl-row:hover { background: rgba(88,166,255,0.06); }
+      .tpl-row input[type="checkbox"] { accent-color: var(--accent); flex: none; }
+      .tpl-row code { color: var(--accent); flex: none; }
+      .tpl-row .tpl-name { flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+      .tpl-row .badge { flex: none; }
       .live { color: var(--ok); }
       .empty { color: var(--muted); padding: 16px; text-align: center; }
       .severity-dot { display: inline-block; width: 8px; height: 8px; border-radius: 50%; margin-right: 6px; }
