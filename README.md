@@ -173,18 +173,26 @@ Negative matching (`negative: true`) reports when a value is **absent** — used
 ## Development
 
 ```sh
-cargo test --workspace         # 36 engine + 5 server tests
+cargo test --workspace         # 39 engine + 7 server tests
 cargo clippy --workspace --all-targets
 cargo fmt --all --check
 ```
 
-Dev loop (rebuild + test + run the server, restarting on changes):
-[`cargo-watch`](https://github.com/watchexec/cargo-watch) must be installed once
-(`cargo install cargo-watch`):
+Server configuration lives in `.env` at the project root (see `.env.example`)
+— `BERBIR_TEMPLATES`, `BERBIR_BIND`, `BERBIR_DB`, `BERBIR_DIST`. It's loaded
+automatically at startup; real shell environment variables take precedence, so
+you can override per-invocation.
+
+Dev loop — rebuild + test + run the server **and** rebuild the frontend
+(`trunk watch` → `crates/app/dist`, which the running server picks up without
+restart). Requires [`cargo-watch`](https://github.com/watchexec/cargo-watch)
+(`cargo install cargo-watch`) and `trunk`:
 
 ```sh
-./watch.sh                     # build → test → run; restarts on source changes
+./watch.sh                     # backend build → test → run + frontend rebuild
 ```
+
+If the server is already running, stop it first or `cargo run` will fail to bind.
 
 Audit how many templates in a directory are actually loadable/runnable:
 

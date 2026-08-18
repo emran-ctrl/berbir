@@ -20,3 +20,4 @@ tracing-subscriber.workspace = true
 anyhow.workspace = true
 url.workspace = true
 reqwest.workspace = true
+dotenvy.workspace = true

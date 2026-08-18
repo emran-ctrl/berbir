@@ -5,6 +5,9 @@
 # Compiled frontend bundle (rebuilt with `trunk build`)
 /crates/app/dist
 
+# Local environment overrides (see `.env.example`)
+.env
+
 # SQLite databases
 *.db
 *.db-wal

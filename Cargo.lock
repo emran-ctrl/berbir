@@ -244,6 +244,7 @@ dependencies = [
  "berbir-engine",
  "berbir-shared",
  "chrono",
+ "dotenvy",
  "futures",
  "reqwest",
  "serde",

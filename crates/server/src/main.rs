@@ -12,6 +12,10 @@ use berbir_engine::Scanner;
 
 #[tokio::main]
 async fn main() -> anyhow::Result<()> {
+    // Load `.env` from the project root (searched from the CWD upward). Real
+    // environment variables take precedence and are never overwritten.
+    let _ = dotenvy::dotenv();
+
     tracing_subscriber::fmt()
         .with_env_filter(
             tracing_subscriber::EnvFilter::try_from_default_env()
